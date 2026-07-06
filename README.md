@@ -46,12 +46,6 @@ Agent 只能读取配置过的仓库根目录下的文件。
 configs/llm.json
 ```
 
-第一次使用时，可以从模板复制一份：
-
-```powershell
-Copy-Item configs/llm.example.json configs/llm.json
-```
-
 里面可以配置多套模型：
 
 ```json

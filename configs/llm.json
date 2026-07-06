@@ -3,7 +3,7 @@
   "profiles": {
     "bailian-qwen": {
       "provider": "qwen",
-      "base_url": "https://your-bailian-endpoint/compatible-mode/v1",
+      "base_url": "https://ws-p5h8jw6ejhd8exjt.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
       "api_key": "",
       "model": "qwen3.7-plus",
       "timeout_seconds": 60,
