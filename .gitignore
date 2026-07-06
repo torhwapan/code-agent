@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+
+data/cases/
+
+# Local LLM credentials. Commit configs/llm.example.json instead.
+configs/llm.json

@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OnCallAgent Code Analysis</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #1f2937;
+        --muted: #667085;
+        --line: #d9dee7;
+        --accent: #1f7a5a;
+        --accent-strong: #166348;
+        --danger: #b42318;
+        --code: #111827;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: minmax(360px, 440px) minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--line);
+        background: var(--panel);
+        padding: 20px;
+        overflow-y: auto;
+      }
+
+      .main {
+        padding: 20px;
+        overflow-y: auto;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 22px;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 16px;
+        letter-spacing: 0;
+      }
+
+      .subtle {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      label {
+        display: block;
+        margin: 16px 0 7px;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      input,
+      select,
+      textarea,
+      button {
+        font: inherit;
+      }
+
+      select,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--text);
+        padding: 10px;
+        outline: none;
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 110px;
+        line-height: 1.45;
+      }
+
+      #logText {
+        min-height: 310px;
+        font-family: Consolas, "SFMono-Regular", monospace;
+        font-size: 12px;
+      }
+
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .row > * {
+        flex: 1;
+      }
+
+      button {
+        border: 0;
+        border-radius: 6px;
+        background: var(--accent);
+        color: white;
+        padding: 11px 14px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      button:hover {
+        background: var(--accent-strong);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.58;
+      }
+
+      .secondary {
+        background: #e7ecef;
+        color: #24313b;
+      }
+
+      .secondary:hover {
+        background: #d9e1e6;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .status {
+        margin-top: 12px;
+        min-height: 22px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .status.error {
+        color: var(--danger);
+      }
+
+      .report-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        gap: 16px;
+        align-items: start;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+      }
+
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: Consolas, "SFMono-Regular", monospace;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .report {
+        color: var(--code);
+      }
+
+      .meta-list {
+        display: grid;
+        gap: 8px;
+        font-size: 13px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        max-width: 100%;
+        border: 1px solid #c9d7d0;
+        border-radius: 999px;
+        padding: 4px 8px;
+        margin: 0 6px 6px 0;
+        color: #164c38;
+        background: #eef8f3;
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+
+      .step {
+        border-top: 1px solid var(--line);
+        padding: 10px 0;
+        font-size: 12px;
+      }
+
+      .step:first-child {
+        border-top: 0;
+      }
+
+      .empty {
+        color: var(--muted);
+        padding: 48px 16px;
+        text-align: center;
+      }
+
+      input[type="file"] {
+        width: 100%;
+        font-size: 13px;
+      }
+
+      @media (max-width: 980px) {
+        .app,
+        .report-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <h1>OnCallAgent</h1>
+        <div class="subtle">上传或粘贴错误日志，Agent 会在配置的本机代码目录中多轮搜索、读取文件并生成代码分析报告。</div>
+
+        <label for="repoSelect">代码仓库</label>
+        <select id="repoSelect"></select>
+        <div id="repoInfo" class="subtle"></div>
+
+        <label for="description">报案描述</label>
+        <textarea id="description" placeholder="例如：MES LotTrack 过站失败，OP 看到 lot 无法 TrackOut。"></textarea>
+
+        <label for="fileInput">日志文件</label>
+        <input id="fileInput" type="file" />
+
+        <label for="logText">错误日志</label>
+        <textarea id="logText" placeholder="粘贴 stack trace、错误码、SQL 异常、关键日志片段..."></textarea>
+
+        <div class="toolbar">
+          <button id="analyzeBtn">开始分析</button>
+          <button id="clearBtn" class="secondary">清空</button>
+        </div>
+        <div id="status" class="status"></div>
+      </aside>
+
+      <main class="main">
+        <div class="report-layout">
+          <section class="panel">
+            <h2>诊断报告</h2>
+            <div id="reportEmpty" class="empty">等待上传日志后生成报告。</div>
+            <pre id="report" class="report" hidden></pre>
+          </section>
+
+          <aside class="panel">
+            <h2>分析过程</h2>
+            <div class="meta-list">
+              <div><strong>Case：</strong><span id="caseId">-</span></div>
+              <div><strong>LLM：</strong><span id="llmState">-</span></div>
+              <div><strong>搜索词：</strong><div id="terms"></div></div>
+              <div><strong>步骤：</strong><div id="steps"></div></div>
+              <div><strong>错误：</strong><div id="errors"></div></div>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const repoSelect = document.getElementById("repoSelect");
+      const repoInfo = document.getElementById("repoInfo");
+      const description = document.getElementById("description");
+      const logText = document.getElementById("logText");
+      const fileInput = document.getElementById("fileInput");
+      const analyzeBtn = document.getElementById("analyzeBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const statusEl = document.getElementById("status");
+      const reportEl = document.getElementById("report");
+      const reportEmpty = document.getElementById("reportEmpty");
+      const caseId = document.getElementById("caseId");
+      const llmState = document.getElementById("llmState");
+      const terms = document.getElementById("terms");
+      const steps = document.getElementById("steps");
+      const errors = document.getElementById("errors");
+
+      let repos = [];
+
+      async function loadRepos() {
+        const res = await fetch("/api/repositories");
+        const data = await res.json();
+        repos = data.repositories || [];
+        repoSelect.innerHTML = "";
+        repos.forEach((repo) => {
+          const option = document.createElement("option");
+          option.value = repo.id;
+          option.textContent = `${repo.name} (${repo.id})`;
+          repoSelect.appendChild(option);
+        });
+        llmState.textContent = data.llm_enabled ? `已启用：${data.model}` : "未配置，使用规则回退";
+        updateRepoInfo();
+      }
+
+      function updateRepoInfo() {
+        const repo = repos.find((item) => item.id === repoSelect.value);
+        repoInfo.textContent = repo ? repo.root : "";
+      }
+
+      fileInput.addEventListener("change", async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        logText.value = await file.text();
+      });
+
+      repoSelect.addEventListener("change", updateRepoInfo);
+
+      clearBtn.addEventListener("click", () => {
+        description.value = "";
+        logText.value = "";
+        fileInput.value = "";
+        renderResult(null);
+        setStatus("");
+      });
+
+      analyzeBtn.addEventListener("click", async () => {
+        const payload = {
+          repo_id: repoSelect.value,
+          description: description.value,
+          log_text: logText.value,
+          max_steps: 8,
+        };
+        if (!payload.log_text.trim()) {
+          setStatus("请先粘贴日志或选择日志文件。", true);
+          return;
+        }
+        analyzeBtn.disabled = true;
+        setStatus("分析中：正在解析日志、搜索代码、读取相关文件...");
+        try {
+          const res = await fetch("/api/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "分析失败");
+          renderResult(data);
+          setStatus("分析完成。");
+        } catch (err) {
+          setStatus(err.message || String(err), true);
+        } finally {
+          analyzeBtn.disabled = false;
+        }
+      });
+
+      function renderResult(data) {
+        if (!data) {
+          reportEl.hidden = true;
+          reportEl.textContent = "";
+          reportEmpty.hidden = false;
+          caseId.textContent = "-";
+          terms.innerHTML = "";
+          steps.innerHTML = "";
+          errors.innerHTML = "";
+          return;
+        }
+        reportEmpty.hidden = true;
+        reportEl.hidden = false;
+        reportEl.textContent = data.report || "";
+        caseId.textContent = data.case_id || "-";
+        llmState.textContent = data.llm_enabled ? "已启用" : "未配置，使用规则回退";
+        terms.innerHTML = (data.search_terms || []).slice(0, 18).map((term) => `<span class="pill">${escapeHtml(term)}</span>`).join("");
+        steps.innerHTML = (data.steps || []).map(renderStep).join("");
+        errors.innerHTML = (data.errors || []).map((e) => `<div class="step">${escapeHtml(e)}</div>`).join("") || '<span class="subtle">无</span>';
+      }
+
+      function renderStep(step) {
+        if (step.type === "search_code") {
+          return `<div class="step"><strong>Search</strong><br>${escapeHtml(step.query || "")}<br><span class="subtle">${escapeHtml(step.reason || "")}，命中 ${step.result_count || 0} 条</span></div>`;
+        }
+        if (step.type === "read_file") {
+          return `<div class="step"><strong>Read</strong><br>${escapeHtml(step.path || "")}:${step.start_line || ""}-${step.end_line || ""}<br><span class="subtle">${escapeHtml(step.reason || "")}</span></div>`;
+        }
+        return `<div class="step"><strong>${escapeHtml(step.type || "step")}</strong><br><span class="subtle">${escapeHtml(step.reason || "")}</span></div>`;
+      }
+
+      function setStatus(message, isError = false) {
+        statusEl.textContent = message;
+        statusEl.classList.toggle("error", isError);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      loadRepos().catch((err) => setStatus(err.message || String(err), true));
+    </script>
+  </body>
+</html>

@@ -1,0 +1,32 @@
+{
+  "repositories": [
+    {
+      "id": "workspace",
+      "name": "Current Workspace",
+      "root": ".",
+      "include": [
+        "**/*.java",
+        "**/*.cs",
+        "**/*.py",
+        "**/*.js",
+        "**/*.ts",
+        "**/*.sql",
+        "**/*.xml",
+        "**/*.yml",
+        "**/*.yaml",
+        "**/*.properties",
+        "**/*.md"
+      ],
+      "exclude": [
+        ".git",
+        ".agents",
+        "__pycache__",
+        "node_modules",
+        "target",
+        "build",
+        "dist",
+        "data/cases"
+      ]
+    }
+  ]
+}
