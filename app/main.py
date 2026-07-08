@@ -10,6 +10,7 @@ from app.code_analysis.agent import CodeAnalysisAgent
 from app.code_analysis.config import RepositoryRegistry
 from app.code_analysis.llm import LLMClient
 from app.code_analysis.tools import LocalCodeTools
+from app.investigation.case_investigator import CaseInvestigator
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,6 +24,7 @@ class AppContext:
         self.tools = LocalCodeTools(self.registry)
         self.llm = LLMClient()
         self.agent = CodeAnalysisAgent(self.tools, self.llm, CASE_DIR)
+        self.investigator = CaseInvestigator()
 
 
 CTX = AppContext()
@@ -71,6 +73,16 @@ class OnCallHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(exc)}, status=500)
                 return
             self._send_json(result)
+            return
+        if parsed.path == "/api/investigate":
+            payload = self._read_json()
+            try:
+                result = CTX.investigator.investigate(payload)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, status=500)
+                return
+            status = 200 if result.get("ok") else 400
+            self._send_json(result, status=status)
             return
         self._send_json({"error": "Not found"}, status=404)
 

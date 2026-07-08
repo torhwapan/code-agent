@@ -1,0 +1,34 @@
+{
+  "active_profile": "local-demo",
+  "profiles": {
+    "local-demo": {
+      "driver": "sqlite",
+      "database": "data/demo/oncall_agent_demo.db"
+    },
+    "pirun": {
+      "driver": "sqlite",
+      "database": "data/demo/pirun.db"
+    },
+    "prod": {
+      "driver": "sqlite",
+      "database": "data/demo/prod.db"
+    }
+  },
+  "queries": {
+    "query_lot_history": {
+      "description": "查询 LotHistory，真实环境请替换成你们的表名和字段名",
+      "sql": "select lot_id, event_time, module, rule_name, server_ip, message from lot_history where lot_id = :lot_id order by event_time desc limit 50",
+      "params": ["lot_id"]
+    },
+    "query_lot_module": {
+      "description": "查询 lot 当前归属模块",
+      "sql": "select lot_id, module, updated_at from lot_module where lot_id = :lot_id order by updated_at desc limit 10",
+      "params": ["lot_id"]
+    },
+    "query_rule_execution": {
+      "description": "根据 lotId 和 ruleName 查询 rule 执行服务器、模块、时间",
+      "sql": "select lot_id, rule_name, env, server_ip, module, handled_at from rule_execution where lot_id = :lot_id and rule_name = :rule_name order by handled_at desc limit 20",
+      "params": ["lot_id", "rule_name"]
+    }
+  }
+}
