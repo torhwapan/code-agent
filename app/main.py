@@ -10,6 +10,7 @@ from app.code_analysis.agent import CodeAnalysisAgent
 from app.code_analysis.config import RepositoryRegistry
 from app.code_analysis.llm import LLMClient
 from app.code_analysis.tools import LocalCodeTools
+from app.agents.parent_agent import OnCallParentAgent
 from app.investigation.case_investigator import CaseInvestigator
 
 
@@ -25,6 +26,7 @@ class AppContext:
         self.llm = LLMClient()
         self.agent = CodeAnalysisAgent(self.tools, self.llm, CASE_DIR)
         self.investigator = CaseInvestigator()
+        self.parent_agent = OnCallParentAgent(self.agent)
 
 
 CTX = AppContext()
@@ -58,6 +60,16 @@ class OnCallHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/oncall":
+            payload = self._read_json()
+            try:
+                result = CTX.parent_agent.handle(payload)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, status=500)
+                return
+            status = 200 if result.get("ok") else 400
+            self._send_json(result, status=status)
+            return
         if parsed.path == "/api/analyze":
             payload = self._read_json()
             repo_id = str(payload.get("repo_id") or "workspace")
@@ -136,7 +148,7 @@ class OnCallHandler(BaseHTTPRequestHandler):
 def run(host: str = "127.0.0.1", port: int = 8000) -> None:
     server = ThreadingHTTPServer((host, port), OnCallHandler)
     print(f"OnCallAgent is running at http://{host}:{port}")
-    print("Set OPENAI_API_KEY to enable LLM-driven multi-step analysis.")
+    print("Open the page and chat with the parent agent. Configure configs/llm.json to enable LLM analysis.")
     server.serve_forever()
 
 
