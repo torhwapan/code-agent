@@ -12,6 +12,30 @@
     "prod": {
       "driver": "sqlite",
       "database": "data/demo/prod.db"
+    },
+    "pirun-postgres": {
+      "driver": "postgres",
+      "host": "${MES_PIRUN_DB_HOST}",
+      "port": 5432,
+      "database": "${MES_PIRUN_DB_NAME}",
+      "username": "${MES_PIRUN_DB_USER}",
+      "password": "${MES_PIRUN_DB_PASSWORD}",
+      "connect_timeout": 10,
+      "sslmode": "prefer",
+      "application_name": "OnCallAgent-pirun",
+      "autocommit": true
+    },
+    "prod-postgres": {
+      "driver": "postgres",
+      "host": "${MES_PROD_DB_HOST}",
+      "port": 5432,
+      "database": "${MES_PROD_DB_NAME}",
+      "username": "${MES_PROD_DB_USER}",
+      "password": "${MES_PROD_DB_PASSWORD}",
+      "connect_timeout": 10,
+      "sslmode": "prefer",
+      "application_name": "OnCallAgent-prod",
+      "autocommit": true
     }
   },
   "queries": {
