@@ -8,13 +8,13 @@ from app.agents.report_agent import ReportAgent
 
 
 class OnCallParentAgent:
-    def __init__(self, code_agent):
+    def __init__(self, code_agent=None, code_agent_url=None):
         self.intent_agent = IntentAgent()
         self.input_agent = InputParseAgent()
         self.db_agent = DBInvestigationAgent()
         self.log_agent = LogRetrievalAgent()
         self.knowledge_agent = KnowledgeRouterAgent()
-        self.code_agent = CodeAnalysisChildAgent(code_agent)
+        self.code_agent = CodeAnalysisChildAgent(code_agent=code_agent, service_url=code_agent_url)
         self.report_agent = ReportAgent()
 
     def handle(self, payload):
@@ -24,6 +24,7 @@ class OnCallParentAgent:
         intent = self.intent_agent.decide(payload)
         context["intent"] = intent["intent"]
         context["log_source"] = intent["log_source"]
+        context["task_type"] = intent.get("task_type") or intent["intent"]
         self._record(context, "IntentAgent", intent["reason"])
 
         context["parsed"] = self.input_agent.run(payload)
@@ -69,6 +70,7 @@ class OnCallParentAgent:
             "status": "running",
             "intent": "",
             "log_source": "",
+            "task_type": "",
             "user_message": payload.get("message") or payload.get("description") or "",
             "repo_id": payload.get("repo_id") or "workspace",
             "max_steps": payload.get("max_steps") or 8,
@@ -101,7 +103,7 @@ class OnCallParentAgent:
         return "还需要补充：" + "、".join(names) + "。"
 
     def _need_code_analysis(self, context):
-        return context.get("intent") in {"code_only", "code_with_log"}
+        return context.get("intent") in {"code_question", "code_with_log"}
 
     def _record(self, context, agent, message):
         context["steps"].append({"agent": agent, "message": message})
@@ -112,6 +114,7 @@ class OnCallParentAgent:
             "status": context.get("status"),
             "intent": context.get("intent"),
             "log_source": context.get("log_source"),
+            "task_type": context.get("task_type"),
             "answer": context.get("answer"),
             "question": context.get("question"),
             "report": context.get("report"),
@@ -125,4 +128,3 @@ class OnCallParentAgent:
                 "missing_fields": context.get("missing_fields"),
             },
         }
-

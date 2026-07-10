@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -26,7 +27,10 @@ class AppContext:
         self.llm = LLMClient()
         self.agent = CodeAnalysisAgent(self.tools, self.llm, CASE_DIR)
         self.investigator = CaseInvestigator()
-        self.parent_agent = OnCallParentAgent(self.agent)
+        self.parent_agent = OnCallParentAgent(
+            code_agent=self.agent,
+            code_agent_url=os.getenv("CODE_ANALYSIS_AGENT_URL"),
+        )
 
 
 CTX = AppContext()

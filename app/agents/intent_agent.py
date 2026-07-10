@@ -8,13 +8,15 @@ class IntentAgent:
             return {
                 "intent": "code_with_log",
                 "log_source": "user_provided",
-                "reason": "用户已经提供了错误日志，直接进入日志驱动的代码分析。",
+                "task_type": "log_diagnosis",
+                "reason": "用户已经提供了日志或分析材料，进入证据驱动的代码分析。",
             }
 
         if self._looks_like_log_lookup(message, payload):
             return {
                 "intent": "code_with_log",
                 "log_source": "need_retrieve",
+                "task_type": "log_diagnosis",
                 "reason": "用户提供了 lot/fab/env 或表达了查询日志诉求，需要先定位日志。",
             }
 
@@ -22,14 +24,26 @@ class IntentAgent:
             return {
                 "intent": "knowledge_question",
                 "log_source": "none",
+                "task_type": "knowledge_question",
                 "reason": "用户主要在询问知识库信息。",
             }
 
+        task_type = self._classify_code_task(lowered, message)
         return {
-            "intent": "code_only",
+            "intent": "code_question",
             "log_source": "none",
-            "reason": "没有发现日志输入或日志查询条件，按纯代码分析处理。",
+            "task_type": task_type,
+            "reason": "没有发现日志输入或日志查询条件，按通用代码分析处理。",
         }
+
+    def _classify_code_task(self, lowered, message):
+        if any(word in message for word in ["流程", "调用链", "链路", "怎么执行", "怎么跑"]):
+            return "flow_analysis"
+        if any(word in message for word in ["影响", "改动", "风险", "会不会影响"]):
+            return "impact_analysis"
+        if any(word in lowered for word in ["bug", "error", "exception"]) or any(word in message for word in ["报错", "异常", "失败"]):
+            return "bug_hunt"
+        return "code_question"
 
     def _looks_like_log_lookup(self, message, payload):
         if payload.get("lot_id") or payload.get("fab") or payload.get("env"):
@@ -41,4 +55,3 @@ class IntentAgent:
         has_env = "pirun" in lowered or "prod" in lowered
         wants_log = "日志" in message and any(word in message for word in ["查", "检索", "获取", "拉"])
         return wants_log or (has_lot and (has_fab or has_env))
-

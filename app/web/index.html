@@ -245,7 +245,7 @@
     <div class="app">
       <aside class="sidebar">
         <h1>OnCallAgent</h1>
-        <div class="subtle">父 Agent 负责对话和编排；子 Agent 负责输入解析、mock DB、mock 日志、知识库和代码分析。</div>
+        <div class="subtle">父 Agent 负责对话和编排；CodeAnalysisAgent 是通用代码分析子 Agent，既能看日志，也能回答流程、调用链、影响面等代码问题。</div>
 
         <label for="repoSelect">代码仓库</label>
         <select id="repoSelect"></select>
@@ -258,7 +258,7 @@
         <h2>示例</h2>
         <div class="subtle">
           1. 帮我分析 CodeAnalysisAgent 的流程。<br />
-          2. 这里有一段错误日志，帮我分析代码。<br />
+          2. 帮我找一下 OnCallParentAgent 调 CodeAnalysisAgent 的链路。<br />
           3. lot L123456，Fab1，pirun，帮我查日志并分析为什么报错。
         </div>
       </aside>
@@ -277,11 +277,11 @@
             <textarea id="messageInput" placeholder="例如：lot L123456，Fab1，pirun，帮我查日志并分析为什么报错。"></textarea>
 
             <details>
-              <summary>错误日志，可选</summary>
-              <label for="fileInput">上传日志文件</label>
+              <summary>补充材料，可选</summary>
+              <label for="fileInput">上传日志或文本文件</label>
               <input id="fileInput" type="file" />
-              <label for="logInput">粘贴错误日志</label>
-              <textarea id="logInput" placeholder="如果用户已经有日志，可以粘贴在这里；父 Agent 会跳过 mock 日志检索，直接进入日志驱动代码分析。"></textarea>
+              <label for="logInput">粘贴日志 / 代码片段 / 报错上下文</label>
+              <textarea id="logInput" placeholder="可粘贴错误日志、代码片段、接口名、SQL、历史处理记录等补充材料。"></textarea>
             </details>
 
             <div class="actions">

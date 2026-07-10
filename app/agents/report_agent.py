@@ -5,6 +5,7 @@ class ReportAgent:
             "",
             "## 1. 当前判断",
             f"- 意图：{context.get('intent')}",
+            f"- 代码任务类型：{context.get('task_type') or 'N/A'}",
             f"- 日志来源：{context.get('log_source')}",
             f"- 状态：{context.get('status')}",
         ]
@@ -73,4 +74,3 @@ class ReportAgent:
             lines.extend(["", "## 注意事项"])
             for item in warnings:
                 lines.append(f"- {item}")
-

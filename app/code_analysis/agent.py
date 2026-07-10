@@ -1,9 +1,11 @@
 import json
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.code_analysis.business_logger import BusinessLogger
 from app.code_analysis.llm import LLMClient
 from app.logs.parser import LogParser
 
@@ -28,23 +30,206 @@ class AgentState:
 
 
 class CodeAnalysisAgent:
-    def __init__(self, tools, llm=None, case_dir="data/cases"):
+    def __init__(self, tools, llm=None, case_dir="data/cases", business_logger=None):
         self.tools = tools
         self.llm = llm or LLMClient()
         self.parser = LogParser()
         self.case_dir = Path(case_dir)
         self.case_dir.mkdir(parents=True, exist_ok=True)
+        self.business_logger = business_logger or BusinessLogger()
 
-    def analyze(self, repo_id, raw_log, description="", max_steps=8):
+    def handle_input(self, request):
+        request_id = self.business_logger.new_request_id()
+        started = time.perf_counter()
+        self.business_logger.write(
+            "code_analysis.request_received",
+            {
+                "request_id": request_id,
+                "input_type": "wide_request",
+                "request": self.business_logger.summarize_request(request),
+            },
+        )
+        try:
+            task = self.normalize_request(request)
+            self.business_logger.write(
+                "code_analysis.request_normalized",
+                {
+                    "request_id": request_id,
+                    "task": self.business_logger.summarize_task(task),
+                },
+            )
+            result = self.analyze_task(task, log_business=False, parent_request_id=request_id)
+            result["normalized_task"] = task
+            self.business_logger.write(
+                "code_analysis.request_completed",
+                {
+                    "request_id": request_id,
+                    "duration_ms": self._duration_ms(started),
+                    "result": self.business_logger.summarize_result(result),
+                },
+            )
+            return result
+        except Exception as exc:
+            self.business_logger.write(
+                "code_analysis.request_failed",
+                {
+                    "request_id": request_id,
+                    "duration_ms": self._duration_ms(started),
+                    "error": str(exc),
+                },
+            )
+            raise
+
+    def normalize_request(self, request):
+        message = request.get("user_message") or request.get("message") or request.get("description") or ""
+        attachments = request.get("attachments") or {}
+        known_context = request.get("known_context") or {}
+        conversation_summary = request.get("conversation_summary") or request.get("context_summary") or ""
+        repo_id = request.get("repo_id") or known_context.get("repo_id") or "workspace"
+        log_text = attachments.get("log_text") or request.get("log_text") or ""
+        extra_text = attachments.get("extra_text") or request.get("extra_text") or ""
+        combined_text = "\n".join(part for part in [message, conversation_summary, log_text, extra_text] if part)
+
+        parsed = self.parser.parse(combined_text)
+        task_type = request.get("task_type") or self._classify_task(message, log_text, combined_text)
+        code_signals = self._extract_code_signals(parsed, known_context, message)
+
+        evidence = {
+            "log_text": log_text,
+            "extra_text": extra_text,
+            "db": request.get("db_evidence") or request.get("db") or {},
+            "knowledge": request.get("knowledge_evidence") or request.get("knowledge") or {},
+        }
+
+        return {
+            "task_type": task_type,
+            "repo_id": repo_id,
+            "user_goal": message or "请分析代码。",
+            "code_signals": code_signals,
+            "evidence": evidence,
+            "context_summary": conversation_summary,
+            "max_steps": request.get("max_steps") or (request.get("options") or {}).get("max_steps") or 8,
+        }
+
+    def analyze_task(self, task, log_business=True, parent_request_id=""):
+        request_id = parent_request_id or self.business_logger.new_request_id()
+        started = time.perf_counter()
+        if log_business:
+            self.business_logger.write(
+                "code_analysis.task_received",
+                {
+                    "request_id": request_id,
+                    "input_type": "normalized_task",
+                    "task": self.business_logger.summarize_task(task),
+                },
+            )
+        repo_id = task.get("repo_id") or "workspace"
+        max_steps = task.get("max_steps") or 8
+        analysis_text = self._task_to_analysis_text(task)
+        description = self._task_description(task)
+        extra_terms = self._task_search_terms(task)
+        try:
+            result = self.analyze(
+                repo_id=repo_id,
+                raw_log=analysis_text,
+                description=description,
+                max_steps=max_steps,
+                extra_search_terms=extra_terms,
+                task_type=task.get("task_type") or "code_question",
+                log_business=False,
+            )
+            result["task_type"] = task.get("task_type") or "code_question"
+            result["user_goal"] = task.get("user_goal") or ""
+            if log_business:
+                self.business_logger.write(
+                    "code_analysis.task_completed",
+                    {
+                        "request_id": request_id,
+                        "duration_ms": self._duration_ms(started),
+                        "result": self.business_logger.summarize_result(result),
+                    },
+                )
+            return result
+        except Exception as exc:
+            if log_business:
+                self.business_logger.write(
+                    "code_analysis.task_failed",
+                    {
+                        "request_id": request_id,
+                        "duration_ms": self._duration_ms(started),
+                        "error": str(exc),
+                    },
+                )
+            raise
+
+    def _classify_task(self, message, log_text, combined_text):
+        lowered = (message or "").lower()
+        if log_text or self.parser.parse(combined_text).exceptions:
+            return "log_diagnosis"
+        if any(word in message for word in ["流程", "调用链", "链路", "怎么执行", "怎么跑", "如何执行"]):
+            return "flow_analysis"
+        if any(word in message for word in ["影响", "改动", "风险", "会不会影响"]):
+            return "impact_analysis"
+        if any(word in lowered for word in ["bug", "error", "exception"]) or any(word in message for word in ["报错", "异常", "失败"]):
+            return "bug_hunt"
+        return "code_question"
+
+    def _extract_code_signals(self, parsed, known_context, message):
+        keywords = self.parser.build_search_terms(parsed)
+        keywords.extend(self._extract_goal_terms(message or ""))
+        module = known_context.get("module") or self._first_match(r"\b(MES|R2R|CIM|EAP|FDC|APC)\b", message)
+        rule_name = known_context.get("rule_name") or self._first_match(r"\b([A-Za-z_][A-Za-z0-9_]*(?:Rule|RULE))\b", message)
+
+        return {
+            "keywords": self._unique_terms(keywords, 40),
+            "classes": parsed.classes,
+            "methods": parsed.methods,
+            "error_codes": parsed.error_codes,
+            "exceptions": parsed.exceptions,
+            "tables": parsed.tables,
+            "module": module,
+            "rule_name": rule_name,
+            "known_context": {key: value for key, value in known_context.items() if value not in (None, "", [], {})},
+        }
+
+    def _first_match(self, pattern, text):
+        match = re.search(pattern, text or "", re.IGNORECASE)
+        if not match:
+            return None
+        return match.group(1)
+
+    def _duration_ms(self, started):
+        return int((time.perf_counter() - started) * 1000)
+
+    def analyze(self, repo_id, raw_log, description="", max_steps=8, extra_search_terms=None, task_type="log_diagnosis", log_business=True):
+        request_id = self.business_logger.new_request_id()
+        started = time.perf_counter()
+        if log_business:
+            self.business_logger.write(
+                "code_analysis.legacy_analyze_received",
+                {
+                    "request_id": request_id,
+                    "input_type": "legacy_analyze",
+                    "repo_id": repo_id,
+                    "task_type": task_type,
+                    "description_preview": self.business_logger.preview(description),
+                    "raw_log_length": len(raw_log or ""),
+                },
+            )
         parsed = self.parser.parse(raw_log)
+        search_terms = self._unique_terms(
+            self.parser.build_search_terms(parsed) + (extra_search_terms or []),
+            80,
+        )
         state = AgentState(
             case_id=self._new_case_id(),
             repo_id=repo_id,
             description=description.strip(),
             raw_log=raw_log,
             parsed_log=parsed,
-            search_terms=self.parser.build_search_terms(parsed),
+            search_terms=search_terms,
         )
+        state.task_type = task_type
 
         if self.llm.available:
             self._run_llm_loop(state, max(2, min(max_steps, 12)))
@@ -57,6 +242,7 @@ class CodeAnalysisAgent:
             "case_id": state.case_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "repo_id": repo_id,
+            "task_type": task_type,
             "llm_enabled": self.llm.available,
             "parsed_log": parsed.to_dict(),
             "search_terms": state.search_terms,
@@ -68,6 +254,15 @@ class CodeAnalysisAgent:
             "report": report,
         }
         self._save_case(result)
+        if log_business:
+            self.business_logger.write(
+                "code_analysis.legacy_analyze_completed",
+                {
+                    "request_id": request_id,
+                    "duration_ms": self._duration_ms(started),
+                    "result": self.business_logger.summarize_result(result),
+                },
+            )
         return result
 
     def _run_llm_loop(self, state, max_steps):
@@ -128,14 +323,14 @@ class CodeAnalysisAgent:
 
     def _ask_next_action(self, state, step_index):
         prompt = {
-            "task": "You are a code analysis agent. Decide the next tool action to diagnose code from an incident log.",
+            "task": "You are a general code analysis agent. Decide the next safe code-search/read action for the user's code task.",
             "allowed_actions": [
                 {"action": "search_code", "query": "term to search", "reason": "why this search matters"},
                 {"action": "read_file", "path": "relative path", "start_line": 1, "end_line": 120, "reason": "why this file range matters"},
                 {"action": "final", "reason": "enough evidence or blocked"},
             ],
             "rules": [
-                "Prefer exact classes, methods, error codes, SQL table names, and constants from the log.",
+                "Prefer exact classes, methods, filenames, APIs, business terms, error codes, SQL table names, and constants from the task.",
                 "After search results are available, read the most relevant files or line ranges.",
                 "Do not request arbitrary shell commands.",
                 "Stop if enough code evidence has been collected or no new useful path remains.",
@@ -165,11 +360,12 @@ class CodeAnalysisAgent:
     def _generate_llm_report(self, state):
         payload = {
             "description": state.description,
+            "task_type": getattr(state, "task_type", "code_question"),
             "parsed_log": state.parsed_log.to_dict(),
             "steps": state.steps,
             "observations": state.observations,
             "code_snippets": [snippet.to_dict() for snippet in state.snippets],
-            "instruction": "Generate a Chinese Markdown code analysis report with evidence. Include likely cause, related files, call path, confidence, missing information, and next steps. If evidence is insufficient, say so clearly.",
+            "instruction": "Generate a Chinese Markdown code analysis report with evidence. Match the user's task type: code question, flow analysis, impact analysis, or log diagnosis. Include related files, call path or implementation flow when useful, confidence, missing information, and next steps. If evidence is insufficient, say so clearly.",
         }
 
         try:
@@ -199,11 +395,13 @@ class CodeAnalysisAgent:
                 "# Code Analysis Report",
                 "",
                 "## 1. Summary",
+                f"- Task type: {getattr(state, 'task_type', 'code_question')}",
+                f"- User goal: {state.description or 'N/A'}",
                 f"- Error / exception: {errors}",
                 f"- Main search terms: {terms}",
                 f"- Code snippets read: {len(state.snippets)}",
                 "",
-                "## 2. Log Signals",
+                "## 2. Extracted Signals",
                 f"- Error codes: {', '.join(parsed.error_codes) or 'N/A'}",
                 f"- Exceptions: {', '.join(parsed.exceptions) or 'N/A'}",
                 f"- Classes: {', '.join(parsed.classes[:10]) or 'N/A'}",
@@ -215,13 +413,89 @@ class CodeAnalysisAgent:
                 "",
                 "## 4. Initial Judgment",
                 "- LLM is not configured, so this report only shows rule-based code location results.",
-                "- Please inspect the listed files and nearby lines first, especially error handling, SQL/table access, and state validation branches.",
+                "- Please inspect the listed files and nearby lines first. For pure code questions, focus on entry points, call flow, interfaces, and state transitions. For log diagnosis, also inspect error handling and validation branches.",
                 "",
                 "## 5. Next Steps",
                 "- Configure `LLM_API_KEY` and model settings to enable multi-step LLM analysis.",
-                "- If too many files match, add system/module information or keep the full stack trace in the log.",
+                "- If too many files match, add module name, class/method name, interface name, or full stack trace.",
             ]
         )
+
+    def _task_to_analysis_text(self, task):
+        evidence = task.get("evidence") or {}
+        code_signals = task.get("code_signals") or {}
+        parts = [
+            task.get("user_goal") or "",
+            task.get("context_summary") or "",
+            evidence.get("log_text") or "",
+        ]
+
+        for key in ("keywords", "classes", "methods", "error_codes", "exceptions", "tables"):
+            values = code_signals.get(key) or []
+            if values:
+                parts.append(f"{key}: " + ", ".join(str(item) for item in values))
+
+        for key in ("module", "rule_name"):
+            if code_signals.get(key):
+                parts.append(f"{key}: {code_signals.get(key)}")
+
+        db_data = (evidence.get("db") or {}).get("data", {})
+        if db_data:
+            parts.append("db_evidence: " + json.dumps(db_data, ensure_ascii=False))
+
+        return "\n".join(part for part in parts if str(part).strip()) or "Code analysis task"
+
+    def _task_description(self, task):
+        parts = [
+            f"任务类型：{task.get('task_type') or 'code_question'}",
+            f"用户目标：{task.get('user_goal') or 'N/A'}",
+        ]
+        if task.get("context_summary"):
+            parts.append(task["context_summary"])
+        return "\n".join(parts)
+
+    def _task_search_terms(self, task):
+        terms = []
+        terms.extend(self._extract_goal_terms(task.get("user_goal") or ""))
+        code_signals = task.get("code_signals") or {}
+        for key in ("keywords", "classes", "methods", "error_codes", "exceptions", "tables"):
+            value = code_signals.get(key)
+            if isinstance(value, list):
+                terms.extend(value)
+        for key in ("module", "rule_name"):
+            if code_signals.get(key):
+                terms.append(code_signals[key])
+
+        evidence = task.get("evidence") or {}
+        db_data = (evidence.get("db") or {}).get("data", {})
+        for key in ("rule_name", "module"):
+            if db_data.get(key):
+                terms.append(db_data[key])
+
+        return self._unique_terms(terms, 60)
+
+    def _extract_goal_terms(self, text):
+        if not text:
+            return []
+
+        terms = []
+        terms.extend(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]{2,}\b", text))
+        terms.extend(re.findall(r"[\u4e00-\u9fff]{2,12}", text))
+        return [term for term in terms if term.lower() not in {"the", "and", "for", "with"}]
+
+    def _unique_terms(self, items, limit):
+        seen = set()
+        result = []
+        for item in items:
+            text = str(item).strip()
+            key = text.lower()
+            if not text or key in seen:
+                continue
+            seen.add(key)
+            result.append(text)
+            if len(result) >= limit:
+                break
+        return result
 
     def _search(self, state, query, reason):
         try:
