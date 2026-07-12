@@ -17,11 +17,22 @@ class CodeAnalysisChildAgent:
 
         task = result.get("normalized_task") or {}
         task_type = task.get("task_type") or context.get("task_type") or "code_question"
+        debug = result.get("debug") or {}
 
         return {
             "ok": True,
             "agent": "CodeAnalysisAgent",
-            "summary": f"代码分析完成，任务类型：{task_type}。",
+            "summary": result.get("summary") or f"代码分析完成，任务类型：{task_type}。",
+            "answer_markdown": result.get("answer_markdown") or result.get("report") or "",
+            "evidence": result.get("evidence") or [],
+            "diagnosis": result.get("diagnosis") or {},
+            "debug": {
+                "case_id": debug.get("case_id") or result.get("case_id") or "",
+                "step_count": debug.get("step_count", len(result.get("steps") or [])),
+                "error_count": debug.get("error_count", len(result.get("errors") or [])),
+            },
+            # Keep the full child-agent payload for troubleshooting, but parent/user
+            # facing code should prefer summary/answer_markdown/evidence/diagnosis.
             "data": result,
             "child_request": request,
             "task": task,
@@ -94,3 +105,4 @@ class CodeAnalysisChildAgent:
             if value not in (None, "", [], {}):
                 result[key] = value
         return result
+

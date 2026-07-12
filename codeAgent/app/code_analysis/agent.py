@@ -258,6 +258,7 @@ class CodeAnalysisAgent:
             "errors": state.errors,
             "report": report,
         }
+        result.update(self._build_parent_payload(state, report))
         self._save_case(result)
         if log_business:
             self.business_logger.write(
@@ -269,6 +270,90 @@ class CodeAnalysisAgent:
                 },
             )
         return result
+
+    def _build_parent_payload(self, state, report):
+        evidence = []
+        for item in state.codegraph_results[:3]:
+            evidence.append(
+                {
+                    "type": "codegraph",
+                    "title": "CodeGraph 查询",
+                    "repo_id": state.repo_id,
+                    "ok": item.ok,
+                    "query": item.query,
+                    "project_path": item.project_path,
+                    "output_length": len(item.output or ""),
+                    "error": item.error,
+                }
+            )
+
+        for snippet in state.snippets[:8]:
+            evidence.append(
+                {
+                    "type": "file",
+                    "title": "代码片段",
+                    "repo_id": snippet.repo_id,
+                    "path": snippet.path,
+                    "start_line": snippet.start_line,
+                    "end_line": snippet.end_line,
+                    "reason": snippet.reason,
+                }
+            )
+
+        related_files = []
+        seen = set()
+        for snippet in state.snippets:
+            if snippet.path in seen:
+                continue
+            seen.add(snippet.path)
+            related_files.append(snippet.path)
+            if len(related_files) >= 12:
+                break
+
+        codegraph_ok = any(item.ok for item in state.codegraph_results)
+        confidence = "medium"
+        if codegraph_ok and state.snippets and not state.errors:
+            confidence = "high"
+        elif state.errors and not state.snippets and not codegraph_ok:
+            confidence = "low"
+
+        return {
+            "summary": self._short_summary(state, codegraph_ok),
+            "answer_markdown": report,
+            "evidence": evidence,
+            "diagnosis": {
+                "confidence": confidence,
+                "related_files": related_files,
+                "codegraph_used": bool(state.codegraph_results),
+                "codegraph_ok": codegraph_ok,
+                "next_steps": self._next_steps(state, codegraph_ok),
+            },
+            "debug": {
+                "case_id": state.case_id,
+                "step_count": len(state.steps),
+                "match_count": len(state.matches),
+                "snippet_count": len(state.snippets),
+                "error_count": len(state.errors),
+            },
+        }
+
+    def _short_summary(self, state, codegraph_ok):
+        task_type = getattr(state, "task_type", "code_question")
+        if codegraph_ok:
+            return f"代码分析完成，任务类型：{task_type}，已使用 CodeGraph 获取代码地图上下文。"
+        return f"代码分析完成，任务类型：{task_type}，未获得有效 CodeGraph 上下文，已使用本地代码搜索兜底。"
+
+    def _next_steps(self, state, codegraph_ok):
+        steps = []
+        if not codegraph_ok:
+            steps.append("确认目标代码目录已经执行 `codegraph init`，并检查 `configs/codegraph.json` 的 projectPath。")
+        if not state.snippets:
+            steps.append("补充更明确的类名、方法名、文件名、接口名或错误堆栈。")
+        if state.errors:
+            steps.append("查看 case 文件中的 errors 字段，确认 LLM、CodeGraph 或文件读取是否有异常。")
+        if not steps:
+            steps.append("如果要继续深入，可补充具体报错日志、调用入口或业务规则名。")
+        return steps
 
     def _run_llm_loop(self, state, max_steps):
         # Main Agent loop: ask LLM what to do, run a safe tool, record the result.

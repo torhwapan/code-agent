@@ -62,10 +62,17 @@ class BusinessLogger:
         }
 
     def summarize_result(self, result):
+        codegraph_results = result.get("codegraph_results") or []
+        first_codegraph = codegraph_results[0] if codegraph_results else {}
         return {
             "analysis_case_id": result.get("case_id") or "",
             "task_type": result.get("task_type") or "",
             "llm_enabled": bool(result.get("llm_enabled")),
+            "codegraph_used": bool(codegraph_results),
+            "codegraph_ok": bool(first_codegraph.get("ok")) if first_codegraph else False,
+            "codegraph_query_preview": self.preview(first_codegraph.get("query") or "", limit=300),
+            "codegraph_output_length": len(first_codegraph.get("output") or ""),
+            "codegraph_error": self.preview(first_codegraph.get("error") or "", limit=300),
             "search_term_count": len(result.get("search_terms") or []),
             "step_count": len(result.get("steps") or []),
             "match_count": len(result.get("matches") or []),
