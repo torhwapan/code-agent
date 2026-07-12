@@ -1,5 +1,4 @@
-__pycache__/
-*.pyc
-
-data/cases/
-data/business_logs/
+/.agents/
+/data/
+/codegraph/
+/codeAgent/.codegraph/

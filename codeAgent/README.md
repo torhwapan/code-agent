@@ -6,6 +6,12 @@
 
 ## 启动
 
+先进入项目目录：
+
+```powershell
+cd codeAgent
+```
+
 ```powershell
 python -m app.main --host 127.0.0.1 --port 8000
 ```
