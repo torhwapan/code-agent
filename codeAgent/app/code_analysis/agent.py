@@ -24,19 +24,21 @@ class AgentState:
         self.matches = []
         self.snippets = []
         self.observations = []
+        self.codegraph_results = []
         self.searched_terms = []
         self.read_keys = set()
         self.errors = []
 
 
 class CodeAnalysisAgent:
-    def __init__(self, tools, llm=None, case_dir="data/cases", business_logger=None):
+    def __init__(self, tools, llm=None, case_dir="data/cases", business_logger=None, codegraph_tool=None):
         self.tools = tools
         self.llm = llm or LLMClient()
         self.parser = LogParser()
         self.case_dir = Path(case_dir)
         self.case_dir.mkdir(parents=True, exist_ok=True)
         self.business_logger = business_logger or BusinessLogger()
+        self.codegraph_tool = codegraph_tool
 
     def handle_input(self, request):
         request_id = self.business_logger.new_request_id()
@@ -231,6 +233,8 @@ class CodeAnalysisAgent:
         )
         state.task_type = task_type
 
+        self._explore_with_codegraph(state)
+
         if self.llm.available:
             self._run_llm_loop(state, max(2, min(max_steps, 12)))
             report = self._generate_llm_report(state)
@@ -249,6 +253,7 @@ class CodeAnalysisAgent:
             "steps": state.steps,
             "matches": [match.to_dict() for match in state.matches[:80]],
             "snippets": [snippet.to_dict() for snippet in state.snippets],
+            "codegraph_results": [item.to_dict() for item in state.codegraph_results],
             "observations": state.observations,
             "errors": state.errors,
             "report": report,
@@ -312,6 +317,47 @@ class CodeAnalysisAgent:
         if not state.snippets:
             self._read_top_matches(state, 5)
 
+    def _explore_with_codegraph(self, state):
+        if not self.codegraph_tool:
+            return
+
+        query = self._build_codegraph_query(state)
+        result = self.codegraph_tool.explore(state.repo_id, query)
+        state.codegraph_results.append(result)
+
+        if result.ok:
+            state.steps.append(
+                {
+                    "type": "codegraph_explore",
+                    "query": result.query,
+                    "project_path": result.project_path,
+                    "output_length": len(result.output or ""),
+                }
+            )
+            state.observations.append(
+                "CodeGraph 已返回代码地图上下文，后续分析会优先基于该上下文，并保留原有代码搜索作为兜底。"
+            )
+        else:
+            state.steps.append(
+                {
+                    "type": "codegraph_explore",
+                    "query": result.query,
+                    "project_path": result.project_path,
+                    "error": result.error,
+                }
+            )
+            state.errors.append(f"codegraph_explore failed: {result.error}")
+
+    def _build_codegraph_query(self, state):
+        parts = []
+        if state.description:
+            parts.append(state.description)
+        if state.raw_log:
+            parts.append(state.raw_log[:3000])
+        if state.search_terms:
+            parts.append("search_terms: " + " ".join(state.search_terms[:30]))
+        return "\n".join(parts).strip() or "Analyze code flow"
+
     def _run_rule_based_loop(self, state, max_steps):
         for term in state.search_terms[: max(3, max_steps)]:
             self._search(state, term, "Rule-based search from parsed log signal")
@@ -364,6 +410,16 @@ class CodeAnalysisAgent:
             "parsed_log": state.parsed_log.to_dict(),
             "steps": state.steps,
             "observations": state.observations,
+            "codegraph_context": [
+                {
+                    "query": item.query,
+                    "project_path": item.project_path,
+                    "output": item.output,
+                    "error": item.error,
+                }
+                for item in state.codegraph_results
+                if item.ok
+            ],
             "code_snippets": [snippet.to_dict() for snippet in state.snippets],
             "instruction": "Generate a Chinese Markdown code analysis report with evidence. Match the user's task type: code question, flow analysis, impact analysis, or log diagnosis. Include related files, call path or implementation flow when useful, confidence, missing information, and next steps. If evidence is insufficient, say so clearly.",
         }
@@ -389,6 +445,7 @@ class CodeAnalysisAgent:
 
         terms = ", ".join(state.search_terms[:12]) or "No useful search term was extracted."
         errors = ", ".join(parsed.error_codes + parsed.exceptions) or "No clear error code or exception was found."
+        codegraph_lines = self._rule_based_codegraph_lines(state)
 
         return "\n".join(
             [
@@ -411,15 +468,41 @@ class CodeAnalysisAgent:
                 "## 3. Related Code Locations",
                 *files,
                 "",
-                "## 4. Initial Judgment",
+                "## 4. CodeGraph Context",
+                *codegraph_lines,
+                "",
+                "## 5. Initial Judgment",
                 "- LLM is not configured, so this report only shows rule-based code location results.",
                 "- Please inspect the listed files and nearby lines first. For pure code questions, focus on entry points, call flow, interfaces, and state transitions. For log diagnosis, also inspect error handling and validation branches.",
                 "",
-                "## 5. Next Steps",
+                "## 6. Next Steps",
                 "- Configure `LLM_API_KEY` and model settings to enable multi-step LLM analysis.",
                 "- If too many files match, add module name, class/method name, interface name, or full stack trace.",
             ]
         )
+
+    def _rule_based_codegraph_lines(self, state):
+        if not state.codegraph_results:
+            return ["- CodeGraph was not configured for this analysis."]
+
+        result = state.codegraph_results[0]
+        if not result.ok:
+            return [f"- CodeGraph did not return context: {result.error or 'unknown error'}"]
+
+        preview = (result.output or "").strip()
+        if len(preview) > 2500:
+            preview = preview[:2500] + "\n...<truncated>"
+        if not preview:
+            return ["- CodeGraph ran successfully but returned no text."]
+
+        return [
+            f"- CodeGraph project: `{result.project_path}`",
+            f"- CodeGraph query: `{result.query[:300]}`",
+            "",
+            "```text",
+            preview,
+            "```",
+        ]
 
     def _task_to_analysis_text(self, task):
         evidence = task.get("evidence") or {}
@@ -594,6 +677,16 @@ class CodeAnalysisAgent:
         return {
             "description": state.description,
             "parsed_log": state.parsed_log.to_dict(),
+            "codegraph_results": [
+                {
+                    "ok": item.ok,
+                    "query": item.query,
+                    "project_path": item.project_path,
+                    "output_preview": item.output[:3000] if item.output else "",
+                    "error": item.error,
+                }
+                for item in state.codegraph_results
+            ],
             "suggested_search_terms": state.search_terms[:30],
             "searched_terms": state.searched_terms[-20:],
             "recent_steps": state.steps[-8:],

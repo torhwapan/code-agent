@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "cliPath": "codegraph",
+  "timeoutSeconds": 60,
+  "maxFiles": 8,
+  "maxOutputChars": 24000,
+  "maxQueryChars": 4000,
+  "repositories": {
+    "workspace": {
+      "projectPath": "."
+    }
+  }
+}

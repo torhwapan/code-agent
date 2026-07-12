@@ -361,3 +361,111 @@ data/business_logs/
 - 将 CodeAnalysisAgent 的 HTTP 调用改成异步任务模式
 - 将 SOP、历史 CASE、需求文档接入真实知识库
 - 支持业务日志按环境配置保留天数和脱敏规则
+# CodeGraph 接入说明
+
+当前 Code Analysis Agent 已接入 CodeGraph 作为代码地图增强工具。
+
+## 调用流程
+
+用户发起代码分析请求后，Code Analysis Agent 会先尝试调用 CodeGraph：
+
+```text
+用户问题 / 日志 / 上下文
+  -> Code Analysis Agent
+    -> CodeGraph explore
+    -> LLM 基于 CodeGraph 上下文 + 文件读取证据分析
+    -> 如果 CodeGraph 不可用，则继续使用原有 rg/read_file 兜底
+```
+
+CodeGraph 不替代原有代码搜索工具。它是优先使用的代码地图上下文来源，失败时不会阻断分析。
+
+## 配置文件
+
+配置文件位置：
+
+```text
+configs/codegraph.json
+```
+
+示例：
+
+```json
+{
+  "enabled": true,
+  "cliPath": "codegraph",
+  "timeoutSeconds": 60,
+  "maxFiles": 8,
+  "maxOutputChars": 24000,
+  "maxQueryChars": 4000,
+  "repositories": {
+    "workspace": {
+      "projectPath": "."
+    }
+  }
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+| --- | --- |
+| `enabled` | 是否启用 CodeGraph |
+| `cliPath` | CodeGraph CLI 命令路径，默认 `codegraph` |
+| `timeoutSeconds` | 单次 `codegraph explore` 超时时间 |
+| `maxFiles` | CodeGraph 返回的最大相关文件数 |
+| `maxOutputChars` | 返回文本最大长度，防止上下文过大 |
+| `maxQueryChars` | 传给 CodeGraph 的查询文本最大长度 |
+| `repositories` | 按 repo_id 配置具体项目路径 |
+
+当前 `workspace` 指向 `codeAgent` 项目自身。后续切换到 MES 代码时，只需要把 `projectPath` 改成 MES 项目目录。
+
+## 使用前提
+
+目标项目必须先执行：
+
+```powershell
+codegraph init
+```
+
+执行后项目目录下会生成：
+
+```text
+.codegraph/
+```
+
+如果没有 `.codegraph` 索引，Agent 会记录错误提示，但不会中断，会继续走原来的代码搜索流程。
+
+## 当前实现位置
+
+新增工具：
+
+```text
+app/code_analysis/codegraph_tool.py
+```
+
+接入位置：
+
+```text
+app/code_analysis/agent.py
+```
+
+服务启动注入：
+
+```text
+app/main.py
+app/code_analysis/server.py
+```
+
+返回结果中会新增：
+
+```text
+codegraph_results
+```
+
+同时 `steps` 中会出现：
+
+```text
+codegraph_explore
+```
+
+这可以用于判断一次分析是否使用了代码地图。

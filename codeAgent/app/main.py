@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from app.code_analysis.agent import CodeAnalysisAgent
+from app.code_analysis.codegraph_tool import CodeGraphTool
 from app.code_analysis.config import RepositoryRegistry
 from app.code_analysis.llm import LLMClient
 from app.code_analysis.tools import LocalCodeTools
@@ -24,8 +25,9 @@ class AppContext:
     def __init__(self) -> None:
         self.registry = RepositoryRegistry(ROOT / "configs" / "repositories.json")
         self.tools = LocalCodeTools(self.registry)
+        self.codegraph_tool = CodeGraphTool(self.registry, ROOT / "configs" / "codegraph.json")
         self.llm = LLMClient()
-        self.agent = CodeAnalysisAgent(self.tools, self.llm, CASE_DIR)
+        self.agent = CodeAnalysisAgent(self.tools, self.llm, CASE_DIR, codegraph_tool=self.codegraph_tool)
         self.investigator = CaseInvestigator()
         self.parent_agent = OnCallParentAgent(
             code_agent=self.agent,
