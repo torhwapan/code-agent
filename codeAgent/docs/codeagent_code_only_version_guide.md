@@ -122,7 +122,53 @@ codeAgent/
     codeagent_code_only_version_guide.md
 ```
 
-## 5. 启动方式一：启动 CodeAgent HTTP 服务
+## 5. 最小运行目录
+
+如果只启动真正的 CodeAgent HTTP 服务：
+
+```powershell
+python -m app.code_analysis.server --host 127.0.0.1 --port 8010
+```
+
+最小只需要这些内容：
+
+```text
+codeAgent/
+  app/
+    __init__.py
+    code_analysis/
+    logs/
+  configs/
+```
+
+说明：
+
+- `app/code_analysis/`：CodeAgent 核心代码分析服务。
+- `app/logs/`：文本信号解析器，用来从用户问题、异常堆栈、补充上下文中提取类名、方法名、异常、关键词等。
+- `configs/`：运行配置，包括 `repositories.json`、`codegraph.json`、`llm.json`。
+- `app/__init__.py`：Python 包识别文件，建议保留。
+
+只启动 HTTP 服务时，不需要：
+
+```text
+app/agents/
+app/web/
+app/main.py
+prompts/
+docs/
+```
+
+实际部署时建议额外保留：
+
+```text
+README.md
+docs/code_analysis_http_api.md
+docs/codeagent_code_only_version_guide.md
+```
+
+方便运维和平台同事查看启动方式、接口格式和排查说明。
+
+## 6. 启动方式一：启动 CodeAgent HTTP 服务
 
 这是公司平台正式接入时推荐的启动方式。
 
@@ -151,7 +197,7 @@ POST http://127.0.0.1:8010/api/code-analysis/handle
 
 这个方式只启动 CodeAgent HTTP 服务，不启动本地 Web 页面，也不启动本地 Python 父 Agent。
 
-## 6. 启动方式二：启动本地 Web Demo
+## 7. 启动方式二：启动本地 Web Demo
 
 这是本地自测页面用的启动方式。
 
@@ -177,7 +223,7 @@ http://127.0.0.1:8000
 
 它适合本地演示和调试，不是公司平台最终接入的必要方式。
 
-## 7. VS Code 调试方式
+## 8. VS Code 调试方式
 
 已新增 VS Code 启动配置：
 
@@ -209,7 +255,7 @@ CodeAgent Web Demo
 python -m app.main --host 127.0.0.1 --port 8000
 ```
 
-## 8. CodeAgent HTTP 请求示例
+## 9. CodeAgent HTTP 请求示例
 
 接口：
 
@@ -248,7 +294,7 @@ data.diagnosis
 data.debug
 ```
 
-## 9. 代码仓库配置
+## 10. 代码仓库配置
 
 代码仓库配置文件：
 
@@ -280,7 +326,7 @@ eap_fab2
 eap_fab3
 ```
 
-## 10. CodeGraph 使用
+## 11. CodeGraph 使用
 
 目标代码目录建议先执行：
 
@@ -292,7 +338,7 @@ codegraph init
 
 CodeAgent 分析时会先调用 CodeGraph 获取代码地图上下文。如果 CodeGraph 不可用，CodeAgent 会记录错误，并继续使用本地代码搜索和读文件兜底。
 
-## 11. LLM 配置
+## 12. LLM 配置
 
 LLM 配置文件：
 
@@ -315,7 +361,7 @@ $env:LLM_PROFILE="openai"
 $env:LLM_API_KEY="your-key"
 ```
 
-## 12. 平台接入步骤
+## 13. 平台接入步骤
 
 1. 启动 CodeAgent HTTP 服务。
 
@@ -351,7 +397,7 @@ POST http://服务器IP:8010/api/code-analysis/handle
   -> 返回代码分析结果
 ```
 
-## 13. 这版变更总结
+## 14. 这版变更总结
 
 本版主要完成：
 
@@ -366,7 +412,7 @@ POST http://服务器IP:8010/api/code-analysis/handle
 - 新增 VS Code debug 启动配置。
 - 更新 Web 页面为代码分析场景。
 
-## 14. 当前推荐使用方式
+## 15. 当前推荐使用方式
 
 本地调试 CodeAgent：
 
