@@ -5,7 +5,7 @@ import mimetypes
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 from app.code_analysis.agent import CodeAnalysisAgent
 from app.code_analysis.codegraph_tool import CodeGraphTool
@@ -13,7 +13,6 @@ from app.code_analysis.config import RepositoryRegistry
 from app.code_analysis.llm import LLMClient
 from app.code_analysis.tools import LocalCodeTools
 from app.agents.parent_agent import OnCallParentAgent
-from app.investigation.case_investigator import CaseInvestigator
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -28,7 +27,6 @@ class AppContext:
         self.codegraph_tool = CodeGraphTool(self.registry, ROOT / "configs" / "codegraph.json")
         self.llm = LLMClient()
         self.agent = CodeAnalysisAgent(self.tools, self.llm, CASE_DIR, codegraph_tool=self.codegraph_tool)
-        self.investigator = CaseInvestigator()
         self.parent_agent = OnCallParentAgent(
             code_agent=self.agent,
             code_agent_url=os.getenv("CODE_ANALYSIS_AGENT_URL"),
@@ -39,7 +37,7 @@ CTX = AppContext()
 
 
 class OnCallHandler(BaseHTTPRequestHandler):
-    server_version = "OnCallAgent/0.1"
+    server_version = "CodeAgent/0.1"
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -79,33 +77,30 @@ class OnCallHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/analyze":
             payload = self._read_json()
             repo_id = str(payload.get("repo_id") or "workspace")
-            raw_log = str(payload.get("log_text") or "")
-            description = str(payload.get("description") or "")
+            description = str(payload.get("message") or payload.get("description") or payload.get("user_message") or "")
+            analysis_text = "\n".join(
+                part for part in [description, str(payload.get("extra_text") or "")] if part.strip()
+            )
             max_steps = int(payload.get("max_steps") or 8)
-            if not raw_log.strip():
-                self._send_json({"error": "log_text is required"}, status=400)
+            if not analysis_text.strip():
+                self._send_json({"error": "message is required"}, status=400)
                 return
             try:
-                result = CTX.agent.analyze(repo_id=repo_id, raw_log=raw_log, description=description, max_steps=max_steps)
+                result = CTX.agent.analyze(
+                    repo_id=repo_id,
+                    analysis_text=analysis_text,
+                    description=description,
+                    max_steps=max_steps,
+                )
             except Exception as exc:
                 self._send_json({"error": str(exc)}, status=500)
                 return
             self._send_json(result)
             return
-        if parsed.path == "/api/investigate":
-            payload = self._read_json()
-            try:
-                result = CTX.investigator.investigate(payload)
-            except Exception as exc:
-                self._send_json({"error": str(exc)}, status=500)
-                return
-            status = 200 if result.get("ok") else 400
-            self._send_json(result, status=status)
-            return
         self._send_json({"error": "Not found"}, status=404)
 
     def log_message(self, fmt: str, *args) -> None:
-        print(f"[OnCallAgent] {self.address_string()} - {fmt % args}")
+        print(f"[CodeAgent] {self.address_string()} - {fmt % args}")
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length") or "0")
@@ -153,15 +148,15 @@ class OnCallHandler(BaseHTTPRequestHandler):
 
 def run(host: str = "127.0.0.1", port: int = 8000) -> None:
     server = ThreadingHTTPServer((host, port), OnCallHandler)
-    print(f"OnCallAgent is running at http://{host}:{port}")
-    print("Open the page and chat with the parent agent. Configure configs/llm.json to enable LLM analysis.")
+    print(f"CodeAgent is running at http://{host}:{port}")
+    print("Open the page and ask code analysis questions. Configure configs/llm.json to enable LLM analysis.")
     server.serve_forever()
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run OnCallAgent MVP web server.")
+    parser = argparse.ArgumentParser(description="Run CodeAgent web server.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8000, type=int)
     args = parser.parse_args()

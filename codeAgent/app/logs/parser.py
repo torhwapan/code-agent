@@ -52,8 +52,8 @@ class LogParser:
         "FALSE",
     }
 
-    def parse(self, raw_log: str) -> ParsedLog:
-        text = raw_log or ""
+    def parse(self, raw_text: str) -> ParsedLog:
+        text = raw_text or ""
         frames = []
         classes = []
         methods = []

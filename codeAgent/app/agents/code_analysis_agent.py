@@ -61,18 +61,13 @@ class CodeAnalysisChildAgent:
             "user_message": context.get("user_message") or "",
             "conversation_summary": self._build_context_summary(context),
             "attachments": {
-                "log_text": context.get("log_text") or "",
                 "extra_text": context.get("extra_text") or "",
             },
             "known_context": {
-                "lot_id": parsed.get("lot_id"),
                 "fab": parsed.get("fab"),
-                "env": parsed.get("env"),
                 "module": parsed.get("module"),
                 "rule_name": parsed.get("rule_name"),
             },
-            "db_evidence": context.get("db_result") or {},
-            "knowledge_evidence": context.get("knowledge") or {},
             "options": {
                 "max_steps": context.get("max_steps") or 8,
             },
@@ -81,21 +76,13 @@ class CodeAnalysisChildAgent:
     def _build_context_summary(self, context):
         parts = []
         parsed = context.get("parsed", {})
-        db_data = context.get("db_result", {}).get("data", {})
         if parsed:
             parsed_summary = self._compact_dict(
                 parsed,
-                ["lot_id", "fab", "env", "module", "rule_name"],
+                ["fab", "module", "rule_name"],
             )
             if parsed_summary:
                 parts.append("解析字段：" + ", ".join(f"{key}={value}" for key, value in parsed_summary.items()))
-        if db_data:
-            db_summary = self._compact_dict(
-                db_data,
-                ["lot_id", "fab", "env", "module", "rule_name", "server_ip", "handled_at"],
-            )
-            if db_summary:
-                parts.append("DB 定位：" + ", ".join(f"{key}={value}" for key, value in db_summary.items()))
         return "\n".join(parts)
 
     def _compact_dict(self, data, keys):
@@ -105,4 +92,3 @@ class CodeAnalysisChildAgent:
             if value not in (None, "", [], {}):
                 result[key] = value
         return result
-

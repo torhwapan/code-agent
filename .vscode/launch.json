@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CodeAgent HTTP Server",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.code_analysis.server",
+      "cwd": "${workspaceFolder}/codeAgent",
+      "args": ["--host", "127.0.0.1", "--port", "8010"],
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    },
+    {
+      "name": "CodeAgent Web Demo",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.main",
+      "cwd": "${workspaceFolder}/codeAgent",
+      "args": ["--host", "127.0.0.1", "--port", "8000"],
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  ]
+}

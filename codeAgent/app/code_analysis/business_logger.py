@@ -38,7 +38,6 @@ class BusinessLogger:
             "repo_id": request.get("repo_id") or known_context.get("repo_id") or "workspace",
             "user_message_preview": self.preview(request.get("user_message") or request.get("message") or ""),
             "conversation_summary_preview": self.preview(request.get("conversation_summary") or request.get("context_summary") or ""),
-            "log_text_length": len(attachments.get("log_text") or request.get("log_text") or ""),
             "extra_text_length": len(attachments.get("extra_text") or request.get("extra_text") or ""),
             "known_context": self._compact_dict(known_context),
         }
@@ -55,7 +54,6 @@ class BusinessLogger:
             "class_count": len(code_signals.get("classes") or []),
             "method_count": len(code_signals.get("methods") or []),
             "exception_count": len(code_signals.get("exceptions") or []),
-            "log_text_length": len(evidence.get("log_text") or ""),
             "extra_text_length": len(evidence.get("extra_text") or ""),
             "module": code_signals.get("module") or "",
             "rule_name": code_signals.get("rule_name") or "",

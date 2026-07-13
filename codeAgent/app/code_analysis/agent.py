@@ -11,13 +11,13 @@ from app.logs.parser import LogParser
 
 
 class AgentState:
-    def __init__(self, case_id, repo_id, description, raw_log, parsed_log, search_terms):
+    def __init__(self, case_id, repo_id, description, analysis_text, parsed_signals, search_terms):
         # This object is the working memory for one analysis case.
         self.case_id = case_id
         self.repo_id = repo_id
         self.description = description
-        self.raw_log = raw_log
-        self.parsed_log = parsed_log
+        self.analysis_text = analysis_text
+        self.parsed_signals = parsed_signals
         self.search_terms = search_terms
 
         self.steps = []
@@ -88,19 +88,15 @@ class CodeAnalysisAgent:
         known_context = request.get("known_context") or {}
         conversation_summary = request.get("conversation_summary") or request.get("context_summary") or ""
         repo_id = request.get("repo_id") or known_context.get("repo_id") or "workspace"
-        log_text = attachments.get("log_text") or request.get("log_text") or ""
         extra_text = attachments.get("extra_text") or request.get("extra_text") or ""
-        combined_text = "\n".join(part for part in [message, conversation_summary, log_text, extra_text] if part)
+        combined_text = "\n".join(part for part in [message, conversation_summary, extra_text] if part)
 
         parsed = self.parser.parse(combined_text)
-        task_type = request.get("task_type") or self._classify_task(message, log_text, combined_text)
+        task_type = request.get("task_type") or self._classify_task(message, combined_text)
         code_signals = self._extract_code_signals(parsed, known_context, message)
 
         evidence = {
-            "log_text": log_text,
             "extra_text": extra_text,
-            "db": request.get("db_evidence") or request.get("db") or {},
-            "knowledge": request.get("knowledge_evidence") or request.get("knowledge") or {},
         }
 
         return {
@@ -133,7 +129,7 @@ class CodeAnalysisAgent:
         try:
             result = self.analyze(
                 repo_id=repo_id,
-                raw_log=analysis_text,
+                analysis_text=analysis_text,
                 description=description,
                 max_steps=max_steps,
                 extra_search_terms=extra_terms,
@@ -164,10 +160,8 @@ class CodeAnalysisAgent:
                 )
             raise
 
-    def _classify_task(self, message, log_text, combined_text):
+    def _classify_task(self, message, combined_text):
         lowered = (message or "").lower()
-        if log_text or self.parser.parse(combined_text).exceptions:
-            return "log_diagnosis"
         if any(word in message for word in ["流程", "调用链", "链路", "怎么执行", "怎么跑", "如何执行"]):
             return "flow_analysis"
         if any(word in message for word in ["影响", "改动", "风险", "会不会影响"]):
@@ -203,7 +197,7 @@ class CodeAnalysisAgent:
     def _duration_ms(self, started):
         return int((time.perf_counter() - started) * 1000)
 
-    def analyze(self, repo_id, raw_log, description="", max_steps=8, extra_search_terms=None, task_type="log_diagnosis", log_business=True):
+    def analyze(self, repo_id, analysis_text="", description="", max_steps=8, extra_search_terms=None, task_type="code_question", log_business=True):
         request_id = self.business_logger.new_request_id()
         started = time.perf_counter()
         if log_business:
@@ -215,10 +209,10 @@ class CodeAnalysisAgent:
                     "repo_id": repo_id,
                     "task_type": task_type,
                     "description_preview": self.business_logger.preview(description),
-                    "raw_log_length": len(raw_log or ""),
+                    "analysis_text_length": len(analysis_text or ""),
                 },
             )
-        parsed = self.parser.parse(raw_log)
+        parsed = self.parser.parse(analysis_text)
         search_terms = self._unique_terms(
             self.parser.build_search_terms(parsed) + (extra_search_terms or []),
             80,
@@ -227,8 +221,8 @@ class CodeAnalysisAgent:
             case_id=self._new_case_id(),
             repo_id=repo_id,
             description=description.strip(),
-            raw_log=raw_log,
-            parsed_log=parsed,
+            analysis_text=analysis_text,
+            parsed_signals=parsed,
             search_terms=search_terms,
         )
         state.task_type = task_type
@@ -248,7 +242,7 @@ class CodeAnalysisAgent:
             "repo_id": repo_id,
             "task_type": task_type,
             "llm_enabled": self.llm.available,
-            "parsed_log": parsed.to_dict(),
+            "parsed_signals": parsed.to_dict(),
             "search_terms": state.search_terms,
             "steps": state.steps,
             "matches": [match.to_dict() for match in state.matches[:80]],
@@ -352,7 +346,7 @@ class CodeAnalysisAgent:
         if state.errors:
             steps.append("查看 case 文件中的 errors 字段，确认 LLM、CodeGraph 或文件读取是否有异常。")
         if not steps:
-            steps.append("如果要继续深入，可补充具体报错日志、调用入口或业务规则名。")
+            steps.append("如果要继续深入，可补充具体入口、类名、方法名或业务规则名。")
         return steps
 
     def _run_llm_loop(self, state, max_steps):
@@ -437,8 +431,8 @@ class CodeAnalysisAgent:
         parts = []
         if state.description:
             parts.append(state.description)
-        if state.raw_log:
-            parts.append(state.raw_log[:3000])
+        if state.analysis_text:
+            parts.append(state.analysis_text[:3000])
         if state.search_terms:
             parts.append("search_terms: " + " ".join(state.search_terms[:30]))
         return "\n".join(parts).strip() or "Analyze code flow"
@@ -492,7 +486,7 @@ class CodeAnalysisAgent:
         payload = {
             "description": state.description,
             "task_type": getattr(state, "task_type", "code_question"),
-            "parsed_log": state.parsed_log.to_dict(),
+            "parsed_signals": state.parsed_signals.to_dict(),
             "steps": state.steps,
             "observations": state.observations,
             "codegraph_context": [
@@ -506,7 +500,7 @@ class CodeAnalysisAgent:
                 if item.ok
             ],
             "code_snippets": [snippet.to_dict() for snippet in state.snippets],
-            "instruction": "Generate a Chinese Markdown code analysis report with evidence. Match the user's task type: code question, flow analysis, impact analysis, or log diagnosis. Include related files, call path or implementation flow when useful, confidence, missing information, and next steps. If evidence is insufficient, say so clearly.",
+            "instruction": "Generate a Chinese Markdown code analysis report with evidence. Match the user's task type: code question, flow analysis, impact analysis, or bug hunt. Include related files, call path or implementation flow when useful, confidence, missing information, and next steps. If evidence is insufficient, say so clearly.",
         }
 
         try:
@@ -521,7 +515,7 @@ class CodeAnalysisAgent:
             return self._generate_rule_based_report(state)
 
     def _generate_rule_based_report(self, state):
-        parsed = state.parsed_log
+        parsed = state.parsed_signals
         files = []
         for snippet in state.snippets:
             files.append(f"- `{snippet.path}:{snippet.start_line}` - {snippet.reason or 'matched log signal'}")
@@ -539,11 +533,11 @@ class CodeAnalysisAgent:
                 "## 1. Summary",
                 f"- Task type: {getattr(state, 'task_type', 'code_question')}",
                 f"- User goal: {state.description or 'N/A'}",
-                f"- Error / exception: {errors}",
+                f"- Error / exception signals: {errors}",
                 f"- Main search terms: {terms}",
                 f"- Code snippets read: {len(state.snippets)}",
                 "",
-                "## 2. Extracted Signals",
+                "## 2. Extracted Code Signals",
                 f"- Error codes: {', '.join(parsed.error_codes) or 'N/A'}",
                 f"- Exceptions: {', '.join(parsed.exceptions) or 'N/A'}",
                 f"- Classes: {', '.join(parsed.classes[:10]) or 'N/A'}",
@@ -558,7 +552,7 @@ class CodeAnalysisAgent:
                 "",
                 "## 5. Initial Judgment",
                 "- LLM is not configured, so this report only shows rule-based code location results.",
-                "- Please inspect the listed files and nearby lines first. For pure code questions, focus on entry points, call flow, interfaces, and state transitions. For log diagnosis, also inspect error handling and validation branches.",
+                "- Please inspect the listed files and nearby lines first. Focus on entry points, call flow, interfaces, state transitions, error handling, and validation branches.",
                 "",
                 "## 6. Next Steps",
                 "- Configure `LLM_API_KEY` and model settings to enable multi-step LLM analysis.",
@@ -595,7 +589,7 @@ class CodeAnalysisAgent:
         parts = [
             task.get("user_goal") or "",
             task.get("context_summary") or "",
-            evidence.get("log_text") or "",
+            evidence.get("extra_text") or "",
         ]
 
         for key in ("keywords", "classes", "methods", "error_codes", "exceptions", "tables"):
@@ -606,10 +600,6 @@ class CodeAnalysisAgent:
         for key in ("module", "rule_name"):
             if code_signals.get(key):
                 parts.append(f"{key}: {code_signals.get(key)}")
-
-        db_data = (evidence.get("db") or {}).get("data", {})
-        if db_data:
-            parts.append("db_evidence: " + json.dumps(db_data, ensure_ascii=False))
 
         return "\n".join(part for part in parts if str(part).strip()) or "Code analysis task"
 
@@ -633,12 +623,6 @@ class CodeAnalysisAgent:
         for key in ("module", "rule_name"):
             if code_signals.get(key):
                 terms.append(code_signals[key])
-
-        evidence = task.get("evidence") or {}
-        db_data = (evidence.get("db") or {}).get("data", {})
-        for key in ("rule_name", "module"):
-            if db_data.get(key):
-                terms.append(db_data[key])
 
         return self._unique_terms(terms, 60)
 
@@ -761,7 +745,7 @@ class CodeAnalysisAgent:
     def _compact_state(self, state):
         return {
             "description": state.description,
-            "parsed_log": state.parsed_log.to_dict(),
+            "parsed_signals": state.parsed_signals.to_dict(),
             "codegraph_results": [
                 {
                     "ok": item.ok,
