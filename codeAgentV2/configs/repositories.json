@@ -1,0 +1,12 @@
+{
+  "default_repo_id": "workspace",
+  "repositories": [
+    {
+      "id": "workspace",
+      "name": "CodeAgent workspace",
+      "root": "D:/Professional/myCode/codeAnalysis/codeAgent",
+      "opencode_url": "http://127.0.0.1:9101",
+      "opencode_password": ""
+    }
+  ]
+}
