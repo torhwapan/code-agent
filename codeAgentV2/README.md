@@ -38,13 +38,19 @@ opencode serve --hostname 127.0.0.1 --port 9101 --print-logs
 
 ```powershell
 cd D:\Professional\myCode\codeAnalysis\codeAgentV2
-python -m app.server --host 127.0.0.1 --port 8020
+python -m app.server --host 0.0.0.0 --port 8020
 ```
 
 健康检查：
 
 ```bash
 curl http://127.0.0.1:8020/health
+```
+
+其他电脑访问时，把 `127.0.0.1` 换成服务器 IP：
+
+```bash
+curl http://服务器IP:8020/health
 ```
 
 ## 请求示例

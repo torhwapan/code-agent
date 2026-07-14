@@ -77,7 +77,7 @@ class CodeAgentV2Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def run(host="127.0.0.1", port=8020):
+def run(host="0.0.0.0", port=8020):
     server = ThreadingHTTPServer((host, port), CodeAgentV2Handler)
     print(f"CodeAgentV2 is running at http://{host}:{port}")
     print("POST /api/code-analysis with repo_id, message, context.")
@@ -86,7 +86,7 @@ def run(host="127.0.0.1", port=8020):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run CodeAgentV2 HTTP server.")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", default=8020, type=int)
     args = parser.parse_args()
     run(args.host, args.port)

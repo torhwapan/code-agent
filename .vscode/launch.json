@@ -33,7 +33,7 @@
       "request": "launch",
       "module": "app.server",
       "cwd": "${workspaceFolder}/codeAgentV2",
-      "args": ["--host", "127.0.0.1", "--port", "8020"],
+      "args": ["--host", "0.0.0.0", "--port", "8020"],
       "console": "integratedTerminal",
       "justMyCode": true,
       "env": {

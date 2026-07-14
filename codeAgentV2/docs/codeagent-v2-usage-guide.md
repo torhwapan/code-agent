@@ -168,12 +168,6 @@ codeAgentV2/configs/repositories.json
 
 ```powershell
 cd D:\Professional\myCode\codeAnalysis\codeAgentV2
-python -m app.server --host 127.0.0.1 --port 8020
-```
-
-如果要给其他机器访问：
-
-```powershell
 python -m app.server --host 0.0.0.0 --port 8020
 ```
 
