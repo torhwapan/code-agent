@@ -26,6 +26,19 @@
       "env": {
         "PYTHONUNBUFFERED": "1"
       }
+    },
+    {
+      "name": "CodeAgentV2 HTTP Server",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.server",
+      "cwd": "${workspaceFolder}/codeAgentV2",
+      "args": ["--host", "127.0.0.1", "--port", "8020"],
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
     }
   ]
 }
